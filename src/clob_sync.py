@@ -1,12 +1,14 @@
 import logging
 import queue
-import data_load
 
 
 logging.basicConfig(level=20)
 logger = logging.getLogger()
 
 class OrderDictTable:
+    """
+        Convert Dataset into Dictionary
+    """
     def __init__(self, order_items):
         self.order_dict = {} 
         self.assign_orders_dict(order_items)
@@ -21,32 +23,43 @@ class OrderDictTable:
     def get_obj(self):
         return self.order_dict
 
+
 class CLOB:
     def __init__(self,clob):
         self.bids_obj = OrderDictTable(clob['bids']).get_obj()
         self.asks_obj = OrderDictTable(clob['asks']).get_obj()
         
-    def order_remove(self,clob_bids_or_ask_dict,order_id):
-        #logger.info('order_id: %s', str(order_id))
-        removed_order = clob_bids_or_ask_dict.pop(order_id,None)
-        #logger.info('clob_bids_or_ask_dict: %s', str(removed_order))
+    def order_remove(self,order_obj,order_id):
+        order_obj.pop(order_id,None)
         
-    def order_add(self,clob_bids_or_ask_dict,price,size,order_id):
-        clob_bids_or_ask_dict[order_id] = [price,size,order_id]
+    def order_add(self,order_obj,price,size,order_id):
+        order_obj[order_id] = [price,size,order_id]
+    
+    def order_size_decrease(self,order_obj,order_id,size):
+        previous_size = order_obj[order_id][1]
+        new_size = str(float(previous_size) - float(size))
+        price = order_obj[order_id][0]
+        order_obj[order_id] = [price,new_size,order_id]
         
     def update_from_message(self,message_obj):
-        #logger.info('message_obj: %s', str(message_obj))
         message_type = message_obj['type']
         message_side = message_obj['side']
-        clob_bids_or_ask_dict = self.asks_obj if message_side == 'sell' else self.bids_obj 
-        #logger.info('message_side: %s', str(message_side))
-        #logger.info('message_type: %s', str(message_type))
-
-        if message_type == 'done':
-            self.order_remove(clob_bids_or_ask_dict,message_obj['order_id'])
-        elif message_type == 'open':
-            self.order_add(clob_bids_or_ask_dict,message_obj['price'],message_obj['remaining_size'],message_obj['order_id'])
+        if message_side == 'sell':
+            order_obj = self.asks_obj
+        elif message_side == 'buy' :
+            order_obj = self.bids_obj
         
+        if message_type == 'done':
+            self.order_remove(order_obj,message_obj['order_id'])
+        elif message_type == 'open':
+            self.order_add(order_obj,message_obj['price'],message_obj['remaining_size'],message_obj['order_id'])
+        elif message_type == 'match' and message_side == 'buy':
+            self.order_size_decrease(order_obj,message_obj['maker_order_id'],message_obj['size'])
+          
+        elif message_type == 'match' and message_side == 'sell':
+            self.order_size_decrease(order_obj,message_obj['maker_order_id'],message_obj['size'])
+            
+            
     def get_clob(self):
         return {
             'bids':self.bids_obj.values(),
@@ -55,11 +68,10 @@ class CLOB:
 
 
 class CLOBSync:
-    def clob_sync(self,initial_clob,final_clob,messages_data_filtered):
+    def clob_sync(self,initial_clob,messages_data_filtered):
         clob = CLOB(initial_clob)
         q = queue.Queue()
         messages_queue_data = sorted(messages_data_filtered,key=lambda i: i['sequence'])
-
 
         list(map(q.put,messages_queue_data ))
         while not q.empty():
@@ -68,10 +80,5 @@ class CLOBSync:
         final_clob_processed = clob.get_clob()
         return final_clob_processed
 
-initial_clob,final_clob,messages_data_filtered = data_load.data_load()
-
-CLOBSync().clob_sync(initial_clob,final_clob,messages_data_filtered)
-
-
-
-
+    
+# updated_clob = CLOBSync().clob_sync(initial_clob,messages_data_filtered)

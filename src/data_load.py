@@ -27,3 +27,5 @@ def data_load():
     final_clob = snapshot_read(file="../data/coinbase_BTC-USD_20_10_06_00_15.json")
     messages_data_filtered = messages_filter(messages_data,initial_clob,final_clob)
     return initial_clob,final_clob,messages_data_filtered
+
+    
